@@ -826,24 +826,34 @@ Desde la web de Portainer → **Stacks** → **Add stack** → pegar el YAML.
 
 ### Stack: home-assistant
 
+**Directorios a crear:**
+```bash
+mkdir -p /opt/homeassistant/config
+```
+
 ```yaml
-version: "3.8"
+version: '3'
 
 services:
   homeassistant:
-    image: homeassistant/home-assistant:stable
     container_name: homeassistant
+    image: "homeassistant/home-assistant:stable"
+    volumes:
+      - /opt/homeassistant/config:/config
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     restart: unless-stopped
     network_mode: host
-    volumes:
-      - /root/homeassistant:/config
-    environment:
-      - TZ=Europe/Madrid
 ```
 
 ---
 
 ### Stack: adguard
+
+**Directorios a crear:**
+```bash
+mkdir -p /opt/adguard/work /opt/adguard/conf
+```
 
 ```yaml
 version: "3.8"
@@ -855,8 +865,8 @@ services:
     restart: unless-stopped
     network_mode: host
     volumes:
-      - /root/adguard/work:/opt/adguardhome/work
-      - /root/adguard/conf:/opt/adguardhome/conf
+      - /opt/adguard/work:/opt/adguardhome/work
+      - /opt/adguard/conf:/opt/adguardhome/conf
 ```
 
 ### Script: Prewarm DNS (precalentar caché)
@@ -907,31 +917,39 @@ echo "$(date '+%H:%M:%S') $COUNT dominios refrescados" >> "$LOG"
 
 ### Stack: indexers (Jackett + FlareSolverr)
 
-```yaml
-version: "3.8"
+**Directorios a crear:**
+```bash
+mkdir -p /root/docker/jackett/config /root/docker/jackett/downloads
+```
 
+```yaml
 services:
   jackett:
     image: lscr.io/linuxserver/jackett:latest
     container_name: jackett
-    restart: unless-stopped
-    ports:
-      - "9117:9117"
     environment:
-      - PUID=1000
-      - PGID=1000
+      - PUID=0
+      - PGID=0
       - TZ=Europe/Madrid
+      - AUTO_UPDATE=true
     volumes:
-      - /root/jackett:/config
+      - /root/docker/jackett/config:/config
+      - /root/docker/jackett/downloads:/downloads
+    ports:
+      - 9117:9117
+    restart: unless-stopped
 
   flaresolverr:
     image: flaresolverr/flaresolverr:latest
     container_name: flaresolverr
-    restart: unless-stopped
+    environment:
+      - LOG_LEVEL=info
+      - LOG_HTML=false
+      - CAPTCHA_SOLVER=none
+      - TZ=Europe/Madrid
     ports:
       - "8191:8191"
-    environment:
-      - TZ=Europe/Madrid
+    restart: unless-stopped
 ```
 
 ---
