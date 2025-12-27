@@ -352,13 +352,20 @@ NV2=$(sensors nvme-pci-c600 2>/dev/null | awk '/Composite/{gsub(/[+°C]/,"",$2);
 RAM1=$(sensors spd5118-i2c-2-50 2>/dev/null | awk '/temp1/{gsub(/[+°C]/,"",$2);print $2;exit}')
 RAM2=$(sensors spd5118-i2c-2-51 2>/dev/null | awk '/temp1/{gsub(/[+°C]/,"",$2);print $2;exit}')
 WIFI=$(sensors mt7925_phy0-pci-c300 2>/dev/null | awk '/temp1/{gsub(/[+°C]/,"",$2);print $2}')
+CPU_PWR=$(turbostat --Summary --quiet --show PkgWatt sleep 1 2>&1 | tail -1)
 RAM_U=$(free -h | awk '/Mem/{print $3}'); RAM_T=$(free -h | awk '/Mem/{print $2}')
 DISK=$(df -h / | awk 'NR==2{print $5}')
 VMS=$(qm list 2>/dev/null | grep -c running); LXC=$(pct list 2>/dev/null | grep -c running)
+BIOS=$(dmidecode -s bios-version 2>/dev/null)
+BIOS_DATE=$(dmidecode -s bios-release-date 2>/dev/null)
+EC=$(cat /sys/class/dmi/id/ec_firmware_release 2>/dev/null || echo "N/A")
 
 echo -e "${BOLD}${CYAN}═══════════════════════════════════════════════${NC}"
 echo -e "${BOLD}${CYAN}  🖥️  PROXMOX: geekcon${NC}"
 echo -e "${BOLD}${CYAN}═══════════════════════════════════════════════${NC}"
+echo -e "${CYAN}  🔧  Firmware${NC}"
+echo -e "      BIOS:           ${BIOS} (${BIOS_DATE})"
+echo -e "      EC:             ${EC}"
 echo -e "${CYAN}  🌡️  Temperaturas${NC}"
 echo -e "      CPU (Ryzen):    $(color_temp $CPU)"
 echo -e "      GPU (890M):     $(color_temp $GPU) (${PWR}W)"
@@ -366,6 +373,9 @@ echo -e "      NVMe Sistema:   $(color_temp $NV1)"
 echo -e "      NVMe Backups:   $(color_temp $NV2)"
 echo -e "      RAM:            $(color_temp $RAM1) / $(color_temp $RAM2)"
 echo -e "      WiFi:           $(color_temp $WIFI)"
+echo -e "${CYAN}  ⚡  Consumo${NC}"
+echo -e "      CPU:            ${CPU_PWR}W"
+echo -e "      GPU:            ${PWR}W"
 echo -e "${CYAN}  📊  Recursos${NC}"
 echo -e "      RAM:            $RAM_U / $RAM_T"
 echo -e "      Disco /:        $DISK"
@@ -587,6 +597,7 @@ Gestor de contraseñas compatible con Bitwarden, instalado via ProxMenux.
 | **Disco** | 1 GB (local-lvm) |
 | **Red** | DHCP via vmbr0 |
 | **MAC** | BC:24:11:41:45:BE |
+| **IP** | 192.168.50.148 |
 | **Autostart** | Sí |
 | **Features** | nesting=1, keyctl=1 |
 | **Unprivileged** | Sí |
@@ -595,7 +606,131 @@ Gestor de contraseñas compatible con Bitwarden, instalado via ProxMenux.
 
 | Servicio | URL |
 |----------|-----|
-| **Vaultwarden Web** | `http://192.168.50.148:8000` |
+| **Vaultwarden Web** | `https://192.168.50.148:8000` |
+
+## Certificado SSL (mkcert)
+
+La app móvil de Bitwarden requiere HTTPS con un certificado válido. Para uso local/VPN, usamos **mkcert** para crear una CA (Autoridad Certificadora) local.
+
+| Propiedad | Valor |
+|-----------|-------|
+| **Tipo** | Certificado local firmado por CA propia |
+| **Válido para** | `192.168.50.148`, `vaultwarden.local`, `localhost` |
+| **Expira** | Marzo 2028 |
+| **Certificado** | `/etc/ssl/certs/vaultwarden-selfsigned.crt` |
+| **Clave** | `/etc/ssl/private/vaultwarden-selfsigned.key` |
+
+### Pasos realizados para configurar HTTPS
+
+#### 1. Instalar mkcert en Mac
+
+```bash
+brew install mkcert
+```
+
+#### 2. Crear CA local e instalar en el sistema
+
+```bash
+mkcert -install
+# Pide contraseña sudo para añadir la CA al llavero del sistema
+```
+
+Esto crea la CA en `~/Library/Application Support/mkcert/rootCA.pem`.
+
+#### 3. Generar certificado para Vaultwarden
+
+```bash
+mkcert -cert-file /tmp/vaultwarden.crt -key-file /tmp/vaultwarden.key \
+  192.168.50.148 vaultwarden.local localhost
+```
+
+#### 4. Copiar certificados al servidor Proxmox
+
+```bash
+scp /tmp/vaultwarden.crt /tmp/vaultwarden.key root@192.168.50.8:/tmp/
+```
+
+#### 5. Instalar certificados en el LXC 101 y reiniciar
+
+```bash
+ssh root@192.168.50.8 "pct push 101 /tmp/vaultwarden.crt /etc/ssl/certs/vaultwarden-selfsigned.crt && \
+  pct push 101 /tmp/vaultwarden.key /etc/ssl/private/vaultwarden-selfsigned.key && \
+  pct exec 101 -- rc-service vaultwarden restart"
+```
+
+---
+
+### Instalar CA en dispositivos móviles
+
+Para que la app de Bitwarden confíe en el certificado, hay que instalar la CA de mkcert en cada dispositivo.
+
+**Obtener el archivo CA:**
+```bash
+# Ver ubicación
+mkcert -CAROOT
+# Copiar a ubicación accesible
+cp "$(mkcert -CAROOT)/rootCA.pem" ~/Desktop/mkcert-CA.crt
+```
+
+#### iOS (iPhone/iPad)
+
+1. **Enviar el archivo** `mkcert-CA.crt` al iPhone por AirDrop, email, o iCloud Drive
+2. **Abrir el archivo** → Aparece "Perfil descargado"
+3. **Instalar perfil:**
+   - Ir a **Ajustes → General → VPN y gestión de dispositivos**
+   - Tocar el perfil descargado → **Instalar**
+   - Introducir código de desbloqueo si lo pide
+4. **Activar confianza completa:**
+   - Ir a **Ajustes → General → Información → Ajustes de certificados**
+   - En "Activar confianza total para certificados raíz", activar el certificado de mkcert
+5. **Configurar app Bitwarden:**
+   - Abrir Bitwarden → Tocar engranaje (⚙️) antes de login
+   - Seleccionar **Self-hosted**
+   - URL: `https://192.168.50.148:8000`
+   - Guardar y crear cuenta/login
+
+#### Android
+
+1. **Copiar el archivo** `mkcert-CA.crt` al dispositivo (cable USB, email, Drive, etc.)
+2. **Instalar certificado:**
+   - Ir a **Ajustes → Seguridad → Más ajustes de seguridad**
+   - Tocar **Instalar desde almacenamiento del dispositivo**
+   - Seleccionar el archivo `mkcert-CA.crt`
+   - Dar un nombre (ej: "mkcert local")
+   - Seleccionar "VPN y apps" como uso
+3. **Configurar app Bitwarden:**
+   - Abrir Bitwarden → Tocar engranaje (⚙️) antes de login
+   - Seleccionar **Self-hosted**
+   - URL: `https://192.168.50.148:8000`
+   - Guardar y crear cuenta/login
+
+> **Nota:** En algunos Android, la ruta puede variar. Buscar "Instalar certificado" en Ajustes.
+
+---
+
+### Regenerar certificado (si expira o cambia la IP)
+
+```bash
+# En Mac (requiere mkcert instalado)
+mkcert -cert-file /tmp/vaultwarden.crt -key-file /tmp/vaultwarden.key \
+  192.168.50.148 vaultwarden.local localhost
+
+# Copiar al servidor y reiniciar
+scp /tmp/vaultwarden.* root@192.168.50.8:/tmp/
+ssh root@192.168.50.8 "pct push 101 /tmp/vaultwarden.crt /etc/ssl/certs/vaultwarden-selfsigned.crt && \
+  pct push 101 /tmp/vaultwarden.key /etc/ssl/private/vaultwarden-selfsigned.key && \
+  pct exec 101 -- rc-service vaultwarden restart"
+```
+
+## Prompt personalizado (Alpine sh)
+
+Archivo: `/root/.profile`
+
+```bash
+export PS1="\033[1;32m\u\033[0m@\033[1;35mvaultwarden\033[0m:\033[1;34m\w\033[0m\$ "
+```
+
+Resultado: `root`(verde)`@vaultwarden`(magenta)`:/ruta`(azul)`$`
 
 ## Instalación (via ProxMenux)
 
@@ -721,6 +856,22 @@ exit
 | **Features** | nesting=1, keyctl=1 |
 
 ---
+
+## Prompt personalizado (Bash)
+
+Archivo: `/root/.bashrc`
+
+```bash
+# Prompt con colores
+export PS1="\[\033[1;32m\]\u\[\033[0m\]@\[\033[1;36m\]docker-commander\[\033[0m\]:\[\033[1;34m\]\w\[\033[0m\]\$ "
+
+# Alias útiles
+alias ll="ls -la --color=auto"
+alias dc="docker compose"
+alias dps="docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
+```
+
+Resultado: `root`(verde)`@docker-commander`(cyan)`:/ruta`(azul)`$`
 
 ## 💾 Backup y Restauración
 
@@ -954,6 +1105,34 @@ services:
 
 ---
 
+### Stack: uptime-kuma
+
+**Directorios a crear:**
+```bash
+mkdir -p /opt/uptime-kuma
+```
+
+```yaml
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:2
+    container_name: uptime-kuma
+    dns:
+      - 192.168.50.67   # AdGuard (primario)
+      - 8.8.8.8         # Google (fallback)
+      - 1.1.1.1         # Cloudflare (fallback)
+    ports:
+      - 3001:3001
+    volumes:
+      - /opt/uptime-kuma:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+```
+
+**Función:** Monitorización de disponibilidad de servicios (up/down, latencia, notificaciones).
+
+---
+
 ### Resumen de servicios
 
 | Nombre | Stack | Puerto | Función |
@@ -963,6 +1142,7 @@ services:
 | **adguard** | adguard | 3000/53 | DNS + Bloqueador ads |
 | **jackett** | indexers | 9117 | Indexador torrents |
 | **flaresolverr** | indexers | 8191 | Bypass Cloudflare |
+| **uptime-kuma** | uptime-kuma | 3001 | Monitorización |
 
 ---
 
@@ -971,13 +1151,15 @@ services:
 | Servicio | Ubicación | URL |
 |----------|-----------|-----|
 | **Proxmox** | Nodo | https://192.168.50.8:8006 |
-| **Portainer** | Contenedor | http://192.168.50.67:9000 |
-| **Home Assistant** | Contenedor | http://192.168.50.67:8123 |
-| **AdGuard** | Contenedor | http://192.168.50.67:3000 |
-| **Jackett** | Contenedor | http://192.168.50.67:9117 |
-| **FlareSolverr** | Contenedor | http://192.168.50.67:8191 |
+| **Vaultwarden** | LXC 101 | https://192.168.50.148:8000 |
+| **Portainer** | LXC 100 | http://192.168.50.67:9000 |
+| **Uptime Kuma** | LXC 100 | http://192.168.50.67:3001 |
+| **Home Assistant** | LXC 100 | http://192.168.50.67:8123 |
+| **AdGuard** | LXC 100 | http://192.168.50.67:3000 |
+| **Jackett** | LXC 100 | http://192.168.50.67:9117 |
+| **FlareSolverr** | LXC 100 | http://192.168.50.67:8191 |
 
-> **Nota:** La IP del contenedor (`192.168.50.67`) está ligada a la MAC `BC:24:11:AF:E8:2E` en el router.
+> **Nota:** La IP de LXC 100 (`192.168.50.67`) está ligada a la MAC `BC:24:11:AF:E8:2E` en el router.
 
 ---
 
