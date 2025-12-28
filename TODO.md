@@ -1,7 +1,7 @@
 # 🚀 Próximas Mejoras - Proxmox geekcon
 
-> **Estado:** Planificado  
-> **Última actualización:** 26 Diciembre 2025
+> **Estado:** En progreso  
+> **Última actualización:** 28 Diciembre 2025
 
 ---
 
@@ -108,8 +108,8 @@
   - [ ] Radarr / Sonarr (gestión de contenido)
   - [ ] qBittorrent / Transmission
   - [ ] Jellyfin / Plex (media server con aceleración GPU)
-  - [ ] Nginx Proxy Manager (reverse proxy)
-  - [ ] Vaultwarden (gestor contraseñas)
+  - [x] ~~Nginx Proxy Manager~~ (descartado, innecesario para uso local)
+  - [x] Vaultwarden (instalado en LXC 101)
 
 - [ ] **Certificados SSL**
   - Let's Encrypt para Proxmox web UI
@@ -140,6 +140,12 @@
 - [x] Monitorización térmica
 - [x] Wake-on-LAN
 - [x] Script anti-nag
+- [x] Vaultwarden (LXC 101) con SSL mkcert
+- [x] Uptime Kuma (monitorización servicios)
+- [x] SearXNG (LXC 110) - metabuscador privado
+- [x] Ollama + Open WebUI (IA local con ROCm)
+- [x] Ampliación disco LXC 100 a 64GB
+- [x] DNS rewrites en AdGuard para nombres locales
 
 ---
 
@@ -147,8 +153,9 @@
 
 - Integración con Home Assistant para control del servidor
 - UPS con notificaciones de apagado seguro
-- VPN (WireGuard) para acceso remoto
-- Pi-hole/AdGuard como DNS de toda la red
+- ~~VPN (WireGuard)~~ (usando VPN del router ASUS)
+- ~~Pi-hole/AdGuard~~ (AdGuard ya instalado en LXC 100)
+- Proxmox Backup Server (PBS) para backups incrementales
 
 ---
 

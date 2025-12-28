@@ -1,6 +1,6 @@
 # Configuración Proxmox VE - geekcon
 
-> **Última actualización:** 26 Diciembre 2025  
+> **Última actualización:** 28 Diciembre 2025  
 > **IP:** 192.168.50.8  
 > **Usuario:** root
 
@@ -14,16 +14,51 @@ Todo en esta sección está configurado directamente en el nodo Proxmox.
 
 ## Sistema
 
+### Hardware
+
+| Componente | Valor |
+|------------|-------|
+| **Fabricante** | GEEKOM |
+| **Modelo** | A9 Max |
+| **BIOS** | AMI 0.24 (26/11/2025) |
+| **Firmware** | AGESA StrixKrackanPI 1.1.0.0c |
+
+### CPU
+
+| Propiedad | Valor |
+|-----------|-------|
+| **Modelo** | AMD Ryzen AI 9 HX 370 w/ Radeon 890M |
+| **Arquitectura** | Zen 5 (Strix Point) |
+| **Cores/Threads** | 12 cores / 24 threads |
+| **Frecuencia** | Base 2.0 GHz, Turbo 5.15 GHz |
+| **Cache** | L1: 960KB, L2: 12MB, L3: 24MB |
+| **TPM** | AMD TPM 2.0 |
+
+### GPU / NPU
+
+| Componente | Valor |
+|------------|-------|
+| **GPU** | AMD Radeon 890M (integrada, RDNA 3.5) |
+| **VRAM BIOS** | 512 MB (configurable en BIOS) |
+| **NPU** | AMD XDNA (Ryzen AI) |
+
+### RAM
+
+| Propiedad | Valor |
+|-----------|-------|
+| **Total** | 32 GB (2x16GB) |
+| **Tipo** | DDR5-5600 SO-DIMM |
+| **Fabricante** | Micron Technology |
+| **Modelo** | CT16G56C46S5 |
+| **Máximo soportado** | 64 GB (según BIOS) |
+
+### Software
+
 | Componente | Valor |
 |------------|-------|
 | **Hostname** | geekcon |
-| **Proxmox VE** | 9.1.0 |
+| **Proxmox VE** | 9.1.4 |
 | **Kernel** | 6.17.4-1-pve |
-| **CPU** | AMD Ryzen AI 9 HX 370 w/ Radeon 890M |
-| **Cores/Threads** | 12 cores / 24 threads |
-| **RAM** | 30 GB |
-| **GPU** | AMD Radeon 890M (integrada) |
-| **NPU** | AMD XDNA (Ryzen AI) |
 
 ---
 
@@ -741,6 +776,46 @@ menu → LXC → Vaultwarden
 
 ---
 
+# 📦 CONTENEDOR LXC: searxng (CT 110)
+
+Metabuscador privado que agrega resultados de +215 buscadores sin rastreo.
+
+## Configuración
+
+| Propiedad | Valor |
+|-----------|-------|
+| **VMID** | 110 |
+| **OS** | Debian 13 (Trixie) |
+| **Hostname** | searxng |
+| **Cores** | 2 |
+| **RAM** | 2 GB |
+| **Disco** | 7 GB (local-lvm) |
+| **Red** | DHCP via vmbr0 |
+| **IP** | 192.168.50.139 |
+| **Autostart** | Sí |
+| **Features** | nesting=1, keyctl=1 |
+| **Unprivileged** | Sí |
+
+## Acceso
+
+| Servicio | URL |
+|----------|-----|
+| **SearXNG Web** | http://192.168.50.139:8888 |
+
+## Usos
+
+- **Buscador privado** para navegador (sin rastreo, sin anuncios)
+- **Backend de búsqueda** para Open WebUI/Ollama
+- **API** para herramientas y scripts
+
+## Instalación (via ProxMenux)
+
+```bash
+menu → LXC → SearXNG
+```
+
+---
+
 # 📦 CONTENEDOR LXC: docker-commander (CT 100)
 
 Todo en esta sección está configurado en el contenedor LXC o es su definición desde Proxmox.
@@ -1133,6 +1208,58 @@ services:
 
 ---
 
+### Stack: ollama (IA Local con ROCm)
+
+Servidor de LLMs (Large Language Models) local con aceleración GPU AMD.
+
+**Directorios a crear:**
+```bash
+mkdir -p /opt/ollama /opt/open-webui
+```
+
+```yaml
+services:
+  ollama:
+    image: ollama/ollama:rocm
+    container_name: ollama
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/kfd:/dev/kfd
+    volumes:
+      - /opt/ollama:/root/.ollama
+    ports:
+      - 11434:11434
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=11.0.0
+    restart: unless-stopped
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    ports:
+      - 3080:8080
+    volumes:
+      - /opt/open-webui:/app/backend/data
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      - ollama
+    restart: unless-stopped
+```
+
+**Notas:**
+- `HSA_OVERRIDE_GFX_VERSION=11.0.0` necesario para GPU Strix Point (RDNA 3.5)
+- Con 512MB VRAM en BIOS, usa modo híbrido CPU+GPU (~28W trabajando, ~3W reposo)
+- Modelos recomendados: `qwen2.5:7b` (mejor español), `llama3.2:3b` (ligero)
+
+**Descargar modelos:**
+```bash
+docker exec -it ollama ollama pull qwen2.5:7b
+docker exec -it ollama ollama list
+```
+
+---
+
 ### Resumen de servicios
 
 | Nombre | Stack | Puerto | Función |
@@ -1143,6 +1270,8 @@ services:
 | **jackett** | indexers | 9117 | Indexador torrents |
 | **flaresolverr** | indexers | 8191 | Bypass Cloudflare |
 | **uptime-kuma** | uptime-kuma | 3001 | Monitorización |
+| **ollama** | ollama | 11434 | LLMs locales (API) |
+| **open-webui** | ollama | 3080 | Chat UI para Ollama |
 
 ---
 
@@ -1158,6 +1287,9 @@ services:
 | **AdGuard** | LXC 100 | http://192.168.50.67:3000 |
 | **Jackett** | LXC 100 | http://192.168.50.67:9117 |
 | **FlareSolverr** | LXC 100 | http://192.168.50.67:8191 |
+| **Open WebUI** | LXC 100 | http://192.168.50.67:3080 |
+| **Ollama API** | LXC 100 | http://192.168.50.67:11434 |
+| **SearXNG** | LXC 110 | http://192.168.50.139:8888 |
 
 > **Nota:** La IP de LXC 100 (`192.168.50.67`) está ligada a la MAC `BC:24:11:AF:E8:2E` en el router.
 
